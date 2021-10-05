@@ -28,6 +28,7 @@ type IncomingMessage struct {
 	UserName    string
 	ChatID      int64
 	Message     string
+	FileURL     string
 	Callback    Callback
 	Payment     *PaymentInfo
 	LastMessage *OutgoingMessage

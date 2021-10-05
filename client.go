@@ -14,6 +14,7 @@ const timeout = 60
 type Client struct {
 	api          *tgbotapi.BotAPI
 	updateCh     tgbotapi.UpdatesChannel
+	token        string
 	paymentToken string
 	withFiscal   bool
 
@@ -37,6 +38,7 @@ func New(token string) (*Client, error) {
 
 	return &Client{
 		api:      api,
+		token:    token,
 		updateCh: updateChannel,
 	}, nil
 }

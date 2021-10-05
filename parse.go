@@ -21,7 +21,6 @@ func (c *Client) parseMessage(update tgbotapi.Update) IncomingMessage {
 		if reflect.TypeOf(update.CallbackQuery.Message.Text).Kind() == reflect.String {
 			msg.Message = strings.TrimSpace(update.CallbackQuery.Message.Text)
 		}
-
 	} else if update.Message != nil {
 		msg.ID = update.Message.MessageID
 		msg.UserID = update.Message.From.ID
@@ -30,6 +29,12 @@ func (c *Client) parseMessage(update tgbotapi.Update) IncomingMessage {
 		msg.ChatID = update.Message.Chat.ID
 		if reflect.TypeOf(update.Message.Text).Kind() == reflect.String {
 			msg.Message = strings.TrimSpace(update.Message.Text)
+		}
+
+		if update.Message.Photo != nil {
+			msg.FileURL, _ = c.api.GetFileDirectURL((*update.Message.Photo)[len(*update.Message.Photo)-1].FileID)
+		} else if update.Message.Document != nil {
+			msg.FileURL, _ = c.api.GetFileDirectURL(update.Message.Document.FileID)
 		}
 
 		if msg.IsCommand() {
