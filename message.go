@@ -1,0 +1,55 @@
+package tg_client
+
+type IncomingMessageType string
+type OutgoingMessageType string
+type WaitMessageType string
+
+const (
+	MessageCommand  IncomingMessageType = "command"
+	MessageCallback IncomingMessageType = "callback"
+	MessageResponse IncomingMessageType = "response"
+	MessagePayment  IncomingMessageType = "payment"
+
+	MessageDefault OutgoingMessageType = "default"
+	MessageEdit    OutgoingMessageType = "edit"
+	MessageDelete  OutgoingMessageType = "delete"
+
+	entityTypeMention = "mention"
+	parseModeMarkdown = "markdown"
+	currencyRUB       = "RUB"
+	currencyRUBInfo   = "руб."
+)
+
+type IncomingMessage struct {
+	ID          int
+	UserID      int
+	Type        IncomingMessageType
+	Login       string
+	UserName    string
+	ChatID      int64
+	Message     string
+	Callback    Callback
+	Payment     *PaymentInfo
+	LastMessage *OutgoingMessage
+}
+
+type OutgoingMessage struct {
+	ID             int
+	Type           OutgoingMessageType
+	ChatID         int64
+	UserID         int
+	Message        string
+	Markup         interface{}
+	WaitData       *WaitData
+	ReplyMessageID int
+	Formatted      bool
+}
+
+type WaitData struct {
+	Type  string
+	Value int64
+}
+
+func (m IncomingMessage) IsCommand() bool {
+	return len(m.Message) > 1 && m.Message[:1] == "/"
+}
