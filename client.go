@@ -6,6 +6,7 @@ import (
 	tgbotapi "github.com/Syfaro/telegram-bot-api"
 	"net/url"
 	"strconv"
+	"sync"
 )
 
 const timeout = 60
@@ -14,9 +15,10 @@ type Client struct {
 	api          *tgbotapi.BotAPI
 	updateCh     tgbotapi.UpdatesChannel
 	paymentToken string
+	withFiscal   bool
 
-	waitingMessage map[int]WaitData
-	lastBotMessage map[int]OutgoingMessage
+	waitingMessage sync.Map
+	lastBotMessage sync.Map
 }
 
 func New(token string) (*Client, error) {
@@ -39,8 +41,9 @@ func New(token string) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) WithPayments(paymentToken string) *Client {
+func (c *Client) WithPayments(paymentToken string, withFiscal bool) *Client {
 	c.paymentToken = paymentToken
+	c.withFiscal = withFiscal
 	return c
 }
 
@@ -51,42 +54,22 @@ func (c *Client) Listen(ctx context.Context, processFn func(ctx context.Context,
 }
 
 func (c *Client) SendMessage(msg *OutgoingMessage) error {
-	tgMsg := tgbotapi.NewMessage(msg.ChatID, msg.Message)
-	tgMsg.ReplyMarkup = msg.Markup
-	if msg.Formatted {
-		tgMsg.ParseMode = parseModeMarkdown
+	switch msg.Type {
+	case MessageDelete:
+		return c.deleteMessage(msg.ChatID, msg.ID)
+	case MessageEdit:
+		return c.editMessage(msg)
+	default:
+		return c.createMessage(msg)
 	}
-
-	m, err := c.api.Send(tgMsg)
-	if err != nil {
-		return err
-	}
-	msg.ID = m.MessageID
-	return nil
-}
-
-func (c *Client) EditMessage(msg *OutgoingMessage) error {
-	tgMsg := tgbotapi.NewEditMessageText(msg.ChatID, msg.ReplyMessageID, msg.Message)
-	if msg.Formatted {
-		tgMsg.ParseMode = parseModeMarkdown
-	}
-	m, err := c.api.Send(tgMsg)
-	if err != nil {
-		return err
-	}
-	msg.ID = m.MessageID
-	return nil
-}
-
-func (c *Client) DeleteMessage(chatID int64, msgID int) error {
-	msg := tgbotapi.NewDeleteMessage(chatID, msgID)
-	_, err := c.api.Send(msg)
-	return err
 }
 
 func (c *Client) SendPayment(p *Payment) error {
 	if c.paymentToken == "" {
 		return errors.New("payment token not set")
+	}
+	if c.withFiscal {
+		return c.sendPaymentWithFiscal(p)
 	}
 
 	prices := []tgbotapi.LabeledPrice{{Label: "руб.", Amount: p.Amount}}
@@ -97,24 +80,6 @@ func (c *Client) SendPayment(p *Payment) error {
 	}
 
 	p.MessageID = msg.MessageID
-	return nil
-}
-
-func (c *Client) SendPaymentWithFiscal(p *Payment) error {
-	if c.paymentToken == "" {
-		return errors.New("payment token not set")
-	}
-
-	vals := p.Values()
-	vals.Add("provider_token", c.paymentToken)
-
-	resp, err := c.api.MakeRequest("sendInvoice", vals)
-	if err != nil {
-		return err
-	}
-	if !resp.Ok {
-		return errors.New(resp.Description)
-	}
 	return nil
 }
 
@@ -131,6 +96,55 @@ func (c *Client) CompletePayment(checkoutID string, err error) error {
 	}
 
 	resp, err := c.api.MakeRequest("answerPreCheckoutQuery", v)
+	if err != nil {
+		return err
+	}
+	if !resp.Ok {
+		return errors.New(resp.Description)
+	}
+	return nil
+}
+
+func (c *Client) createMessage(msg *OutgoingMessage) error {
+	tgMsg := tgbotapi.NewMessage(msg.ChatID, msg.Message)
+	tgMsg.ReplyMarkup = msg.Markup
+	if msg.Formatted {
+		tgMsg.ParseMode = parseModeMarkdown
+	}
+
+	m, err := c.api.Send(tgMsg)
+	if err != nil {
+		return err
+	}
+	msg.ID = m.MessageID
+	c.lastBotMessage.Store(msg.UserID, msg)
+	return nil
+}
+
+func (c *Client) editMessage(msg *OutgoingMessage) error {
+	tgMsg := tgbotapi.NewEditMessageText(msg.ChatID, msg.ReplyMessageID, msg.Message)
+	if msg.Formatted {
+		tgMsg.ParseMode = parseModeMarkdown
+	}
+	m, err := c.api.Send(tgMsg)
+	if err != nil {
+		return err
+	}
+	msg.ID = m.MessageID
+	return nil
+}
+
+func (c *Client) deleteMessage(chatID int64, msgID int) error {
+	msg := tgbotapi.NewDeleteMessage(chatID, msgID)
+	_, err := c.api.Send(msg)
+	return err
+}
+
+func (c *Client) sendPaymentWithFiscal(p *Payment) error {
+	vals := p.Values()
+	vals.Add("provider_token", c.paymentToken)
+
+	resp, err := c.api.MakeRequest("sendInvoice", vals)
 	if err != nil {
 		return err
 	}

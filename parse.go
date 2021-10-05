@@ -34,11 +34,13 @@ func (c *Client) parseMessage(update tgbotapi.Update) IncomingMessage {
 
 		if msg.IsCommand() {
 			msg.Type = MessageCommand
-			delete(c.waitingMessage, msg.UserID)
-		} else if v, ok := c.waitingMessage[msg.UserID]; ok {
+			c.waitingMessage.Delete(msg.UserID)
+		} else if v, ok := c.waitingMessage.Load(msg.UserID); ok {
 			msg.Type = MessageResponse
-			msg.Callback.Type = v.Type
-			msg.Callback.ItemID = v.Value
+			if v.(*WaitData) != nil {
+				msg.Callback.Type = v.(*WaitData).Type
+				msg.Callback.ItemID = v.(*WaitData).Value
+			}
 			msg.Callback.Value = getMention(update)
 		} else if update.Message.SuccessfulPayment != nil {
 			msg.Type = MessagePayment
@@ -64,13 +66,15 @@ func (c *Client) parseMessage(update tgbotapi.Update) IncomingMessage {
 		if update.PreCheckoutQuery.OrderInfo != nil {
 			msg.Payment.Email = update.PreCheckoutQuery.OrderInfo.Email
 		}
-		delete(c.waitingMessage, msg.UserID)
+		c.waitingMessage.Delete(msg.UserID)
 	}
 
-	if v, ok := c.lastBotMessage[msg.UserID]; ok && msg.UserID != 0 {
-		msg.LastMessage = &v
-		if msg.Type == MessagePayment && msg.ChatID == 0 {
-			msg.ChatID = v.ChatID
+	if v, ok := c.lastBotMessage.Load(msg.UserID); ok && msg.UserID != 0 {
+		if v.(*OutgoingMessage) != nil {
+			msg.LastMessage = v.(*OutgoingMessage)
+			if msg.Type == MessagePayment && msg.ChatID == 0 {
+				msg.ChatID = v.(*OutgoingMessage).ChatID
+			}
 		}
 	}
 
