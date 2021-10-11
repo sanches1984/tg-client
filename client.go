@@ -58,7 +58,7 @@ func (c *Client) Listen(ctx context.Context, processFn func(ctx context.Context,
 func (c *Client) SendMessage(msg *OutgoingMessage) error {
 	switch msg.Type {
 	case MessageDelete:
-		return c.deleteMessage(msg.ChatID, msg.ID)
+		return c.deleteMessage(msg)
 	case MessageEdit:
 		return c.editMessage(msg)
 	default:
@@ -136,9 +136,9 @@ func (c *Client) editMessage(msg *OutgoingMessage) error {
 	return nil
 }
 
-func (c *Client) deleteMessage(chatID int64, msgID int) error {
-	msg := tgbotapi.NewDeleteMessage(chatID, msgID)
-	_, err := c.api.Send(msg)
+func (c *Client) deleteMessage(msg *OutgoingMessage) error {
+	tgMsg := tgbotapi.NewDeleteMessage(msg.ChatID, msg.ReplyMessageID)
+	_, err := c.api.Send(tgMsg)
 	return err
 }
 
