@@ -19,7 +19,7 @@ type Client struct {
 	withFiscal   bool
 
 	waitingMessage sync.Map
-	lastBotMessage sync.Map
+	//	lastBotMessage sync.Map
 }
 
 func New(token string) (*Client, error) {
@@ -56,6 +56,10 @@ func (c *Client) Listen(ctx context.Context, processFn func(ctx context.Context,
 }
 
 func (c *Client) SendMessage(msg *OutgoingMessage) error {
+	if msg.WaitData != nil {
+		c.waitingMessage.Store(msg.UserID, msg.WaitData)
+	}
+
 	switch msg.Type {
 	case MessageDelete:
 		return c.deleteMessage(msg)
@@ -119,9 +123,18 @@ func (c *Client) createMessage(msg *OutgoingMessage) error {
 		return err
 	}
 	msg.ID = m.MessageID
-	c.lastBotMessage.Store(msg.UserID, msg)
+	//c.lastBotMessage.Store(msg.UserID, msg)
 	return nil
 }
+
+//func (c *Client) GetLastBotMessage(userID int) *OutgoingMessage {
+//	v, ok := c.lastBotMessage.Load(userID)
+//	if !ok {
+//		return nil
+//	}
+//
+//	return v.(*OutgoingMessage)
+//}
 
 func (c *Client) editMessage(msg *OutgoingMessage) error {
 	tgMsg := tgbotapi.NewEditMessageText(msg.ChatID, msg.ReplyMessageID, msg.Message)
