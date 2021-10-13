@@ -5,10 +5,12 @@ type OutgoingMessageType string
 type WaitMessageType string
 
 const (
-	MessageCommand  IncomingMessageType = "command"
-	MessageCallback IncomingMessageType = "callback"
-	MessageResponse IncomingMessageType = "response"
-	MessagePayment  IncomingMessageType = "payment"
+	MessageCommand         IncomingMessageType = "command"
+	MessageCallback        IncomingMessageType = "callback"
+	MessageResponse        IncomingMessageType = "response"
+	MessagePaymentCheckout IncomingMessageType = "payment-checkout"
+	MessagePaymentCharge   IncomingMessageType = "payment-charge"
+	MessageText            IncomingMessageType = "text"
 
 	MessageDefault OutgoingMessageType = "default"
 	MessageEdit    OutgoingMessageType = "edit"
@@ -29,7 +31,7 @@ type IncomingMessage struct {
 	ChatID      int64
 	Message     string
 	FileURL     string
-	Callback    Callback
+	Callback    *Callback
 	Payment     *PaymentInfo
 	LastMessage *OutgoingMessage
 }

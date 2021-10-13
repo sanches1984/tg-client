@@ -4,12 +4,17 @@ import (
 	"context"
 	"errors"
 	tgbotapi "github.com/Syfaro/telegram-bot-api"
+	"github.com/rs/zerolog"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 )
 
 const timeout = 60
+
+type HandleFunc func(ctx context.Context, msg IncomingMessage) []OutgoingMessage
+type CheckoutPaymentFunc func(ctx context.Context, msg IncomingMessage) error
 
 type Client struct {
 	api          *tgbotapi.BotAPI
@@ -20,6 +25,15 @@ type Client struct {
 
 	waitingMessage sync.Map
 	lastBotMessage sync.Map
+
+	handlers          map[string]HandleFunc
+	callbackFn        HandleFunc
+	paymentCheckoutFn CheckoutPaymentFunc
+	paymentChargeFn   HandleFunc
+	messageFn         HandleFunc
+	defaultFn         HandleFunc
+
+	logger zerolog.Logger
 }
 
 func New(token string) (*Client, error) {
@@ -40,6 +54,7 @@ func New(token string) (*Client, error) {
 		api:      api,
 		token:    token,
 		updateCh: updateChannel,
+		logger:   zerolog.Logger{},
 	}, nil
 }
 
@@ -49,9 +64,78 @@ func (c *Client) WithPayments(paymentToken string, withFiscal bool) *Client {
 	return c
 }
 
-func (c *Client) Listen(ctx context.Context, processFn func(ctx context.Context, msg IncomingMessage)) {
+func (c *Client) WithLogger(logger zerolog.Logger) *Client {
+	c.logger = logger
+	return c
+}
+
+func (c *Client) HandleCommand(name string, handleFn HandleFunc) {
+	c.handlers[strings.ToLower(name)] = handleFn
+}
+
+func (c *Client) HandleCallback(handleFn HandleFunc) {
+	c.callbackFn = handleFn
+}
+
+func (c *Client) HandleMessage(handleFn HandleFunc) {
+	c.messageFn = handleFn
+}
+
+func (c *Client) HandlePayment(checkoutPaymentFn CheckoutPaymentFunc, chargePaymentFn HandleFunc) {
+	c.paymentCheckoutFn = checkoutPaymentFn
+	c.paymentChargeFn = chargePaymentFn
+}
+
+func (c *Client) HandleDefault(handleFn HandleFunc) {
+	c.defaultFn = handleFn
+}
+
+func (c *Client) Listen(ctx context.Context) {
 	for update := range c.updateCh {
-		processFn(ctx, c.parseMessage(update))
+		go c.processMessage(ctx, update)
+	}
+}
+
+func (c *Client) processMessage(ctx context.Context, update tgbotapi.Update) {
+	msg := c.parseMessage(update)
+	c.logger.Debug().Int("user_id", msg.UserID).Str("msg", msg.Message).Msg("incoming message")
+
+	var outMsg []OutgoingMessage
+	switch msg.Type {
+	case MessageCommand:
+		if fn, ok := c.handlers[strings.ToLower(msg.Message)]; ok {
+			outMsg = fn(ctx, msg)
+		}
+	case MessageCallback:
+		if c.callbackFn != nil {
+			outMsg = c.callbackFn(ctx, msg)
+		}
+	case MessagePaymentCheckout:
+		if c.paymentCheckoutFn != nil {
+			err := c.paymentCheckoutFn(ctx, msg)
+			if completeErr := c.completePayment(msg.Payment.CheckoutID, err); completeErr != nil {
+				c.logger.Error().Err(err).Int("user_id", msg.UserID).Str("checkout_id", msg.Payment.CheckoutID).Msg("complete payment error")
+			}
+		}
+	case MessagePaymentCharge:
+		if c.paymentChargeFn != nil {
+			outMsg = c.paymentChargeFn(ctx, msg)
+		}
+	case MessageResponse, MessageText:
+		if c.messageFn != nil {
+			outMsg = c.messageFn(ctx, msg)
+		}
+	default:
+		if c.defaultFn != nil {
+			outMsg = c.messageFn(ctx, msg)
+		}
+	}
+
+	for _, m := range outMsg {
+		c.logger.Debug().Int("user_id", m.UserID).Str("msg", m.Message).Msg("outgoing message")
+		if err := c.SendMessage(&m); err != nil {
+			c.logger.Error().Err(err).Int("user_id", m.UserID).Str("msg", m.Message).Msg("send message error")
+		}
 	}
 }
 
@@ -89,7 +173,7 @@ func (c *Client) SendPayment(p *Payment) error {
 	return nil
 }
 
-func (c *Client) CompletePayment(checkoutID string, err error) error {
+func (c *Client) completePayment(checkoutID string, err error) error {
 	if c.paymentToken == "" {
 		return errors.New("payment token not set")
 	}
@@ -125,15 +209,6 @@ func (c *Client) createMessage(msg *OutgoingMessage) error {
 	msg.ID = m.MessageID
 	c.lastBotMessage.Store(msg.UserID, msg)
 	return nil
-}
-
-func (c *Client) GetLastBotMessage(userID int) *OutgoingMessage {
-	v, ok := c.lastBotMessage.Load(userID)
-	if !ok {
-		return nil
-	}
-
-	return v.(*OutgoingMessage)
 }
 
 func (c *Client) editMessage(msg *OutgoingMessage) error {

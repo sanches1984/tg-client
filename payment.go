@@ -49,6 +49,7 @@ type PaymentInfo struct {
 	Amount           int
 	Currency         string
 	Email            string
+	Payload          string
 }
 
 func NewProviderData(p Payment) ProviderData {

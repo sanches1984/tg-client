@@ -42,31 +42,32 @@ func (c *Client) parseMessage(update tgbotapi.Update) IncomingMessage {
 			c.waitingMessage.Delete(msg.UserID)
 		} else if v, ok := c.waitingMessage.Load(msg.UserID); ok {
 			msg.Type = MessageResponse
+			msg.Callback = &Callback{Value: getMention(update)}
 			if v.(*WaitData) != nil {
 				msg.Callback.Type = v.(*WaitData).Type
 				msg.Callback.ItemID = v.(*WaitData).Value
 			}
-			msg.Callback.Value = getMention(update)
+
 		} else if update.Message.SuccessfulPayment != nil {
-			msg.Type = MessagePayment
-			msg.Callback.Type = CallbackPaymentCharge
-			msg.Callback.Value = update.Message.SuccessfulPayment.InvoicePayload
+			msg.Type = MessagePaymentCharge
 			msg.Payment = &PaymentInfo{
 				TelegramChargeID: update.Message.SuccessfulPayment.TelegramPaymentChargeID,
 				ProviderChargeID: update.Message.SuccessfulPayment.ProviderPaymentChargeID,
 				Amount:           update.Message.SuccessfulPayment.TotalAmount,
 				Currency:         update.Message.SuccessfulPayment.Currency,
+				Payload:          update.Message.SuccessfulPayment.InvoicePayload,
 			}
+		} else {
+			msg.Type = MessageText
 		}
 	} else if update.PreCheckoutQuery != nil {
-		msg.Type = MessagePayment
+		msg.Type = MessagePaymentCheckout
 		msg.UserID = update.PreCheckoutQuery.From.ID
-		msg.Callback.Type = CallbackPaymentCheckout
-		msg.Callback.Value = update.PreCheckoutQuery.InvoicePayload
 		msg.Payment = &PaymentInfo{
 			CheckoutID: update.PreCheckoutQuery.ID,
 			Amount:     update.PreCheckoutQuery.TotalAmount,
 			Currency:   update.PreCheckoutQuery.Currency,
+			Payload:    update.PreCheckoutQuery.InvoicePayload,
 		}
 		if update.PreCheckoutQuery.OrderInfo != nil {
 			msg.Payment.Email = update.PreCheckoutQuery.OrderInfo.Email
@@ -77,7 +78,7 @@ func (c *Client) parseMessage(update tgbotapi.Update) IncomingMessage {
 	if v, ok := c.lastBotMessage.Load(msg.UserID); ok && msg.UserID != 0 {
 		if v.(*OutgoingMessage) != nil {
 			msg.LastMessage = v.(*OutgoingMessage)
-			if msg.Type == MessagePayment && msg.ChatID == 0 {
+			if (msg.Type == MessagePaymentCheckout || msg.Type == MessagePaymentCharge) && msg.ChatID == 0 {
 				msg.ChatID = v.(*OutgoingMessage).ChatID
 			}
 		}
