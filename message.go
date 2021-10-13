@@ -34,6 +34,7 @@ type IncomingMessage struct {
 	Callback    *Callback
 	Payment     *PaymentInfo
 	LastMessage *OutgoingMessage
+	User        interface{}
 }
 
 type OutgoingMessage struct {

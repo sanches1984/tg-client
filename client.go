@@ -5,6 +5,7 @@ import (
 	"errors"
 	tgbotapi "github.com/Syfaro/telegram-bot-api"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"net/url"
 	"strconv"
 	"strings"
@@ -14,7 +15,6 @@ import (
 const timeout = 60
 
 type HandleFunc func(ctx context.Context, msg IncomingMessage) []OutgoingMessage
-type CheckoutPaymentFunc func(ctx context.Context, msg IncomingMessage) error
 
 type Client struct {
 	api          *tgbotapi.BotAPI
@@ -27,8 +27,9 @@ type Client struct {
 	lastBotMessage sync.Map
 
 	handlers          map[string]HandleFunc
+	prepareFn         func(ctx context.Context, msg *IncomingMessage) []OutgoingMessage
 	callbackFn        HandleFunc
-	paymentCheckoutFn CheckoutPaymentFunc
+	paymentCheckoutFn HandleFunc
 	paymentChargeFn   HandleFunc
 	messageFn         HandleFunc
 	defaultFn         HandleFunc
@@ -54,7 +55,7 @@ func New(token string) (*Client, error) {
 		api:      api,
 		token:    token,
 		updateCh: updateChannel,
-		logger:   zerolog.Logger{},
+		logger:   log.Logger,
 	}, nil
 }
 
@@ -69,6 +70,10 @@ func (c *Client) WithLogger(logger zerolog.Logger) *Client {
 	return c
 }
 
+func (c *Client) HandlePrepareMessage(handleFn func(ctx context.Context, msg *IncomingMessage) []OutgoingMessage) {
+	c.prepareFn = handleFn
+}
+
 func (c *Client) HandleCommand(name string, handleFn HandleFunc) {
 	c.handlers[strings.ToLower(name)] = handleFn
 }
@@ -81,7 +86,7 @@ func (c *Client) HandleMessage(handleFn HandleFunc) {
 	c.messageFn = handleFn
 }
 
-func (c *Client) HandlePayment(checkoutPaymentFn CheckoutPaymentFunc, chargePaymentFn HandleFunc) {
+func (c *Client) HandlePayment(checkoutPaymentFn HandleFunc, chargePaymentFn HandleFunc) {
 	c.paymentCheckoutFn = checkoutPaymentFn
 	c.paymentChargeFn = chargePaymentFn
 }
@@ -98,37 +103,16 @@ func (c *Client) Listen(ctx context.Context) {
 
 func (c *Client) processMessage(ctx context.Context, update tgbotapi.Update) {
 	msg := c.parseMessage(update)
-	c.logger.Debug().Int("user_id", msg.UserID).Str("msg", msg.Message).Msg("incoming message")
+	c.logger.Debug().Int("user_id", msg.UserID).Str("msg", msg.Message).
+		Str("callback", string(msg.Callback.Type)).Str("value", msg.Callback.Value).Msg("incoming message")
 
 	var outMsg []OutgoingMessage
-	switch msg.Type {
-	case MessageCommand:
-		if fn, ok := c.handlers[strings.ToLower(msg.Message)]; ok {
-			outMsg = fn(ctx, msg)
-		}
-	case MessageCallback:
-		if c.callbackFn != nil {
-			outMsg = c.callbackFn(ctx, msg)
-		}
-	case MessagePaymentCheckout:
-		if c.paymentCheckoutFn != nil {
-			err := c.paymentCheckoutFn(ctx, msg)
-			if completeErr := c.completePayment(msg.Payment.CheckoutID, err); completeErr != nil {
-				c.logger.Error().Err(err).Int("user_id", msg.UserID).Str("checkout_id", msg.Payment.CheckoutID).Msg("complete payment error")
-			}
-		}
-	case MessagePaymentCharge:
-		if c.paymentChargeFn != nil {
-			outMsg = c.paymentChargeFn(ctx, msg)
-		}
-	case MessageResponse, MessageText:
-		if c.messageFn != nil {
-			outMsg = c.messageFn(ctx, msg)
-		}
-	default:
-		if c.defaultFn != nil {
-			outMsg = c.messageFn(ctx, msg)
-		}
+	if c.prepareFn != nil {
+		outMsg = c.prepareFn(ctx, &msg)
+	}
+
+	if len(outMsg) == 0 {
+		outMsg = c.getOutgoingMessages(ctx, msg)
 	}
 
 	for _, m := range outMsg {
@@ -137,6 +121,36 @@ func (c *Client) processMessage(ctx context.Context, update tgbotapi.Update) {
 			c.logger.Error().Err(err).Int("user_id", m.UserID).Str("msg", m.Message).Msg("send message error")
 		}
 	}
+}
+
+func (c *Client) getOutgoingMessages(ctx context.Context, msg IncomingMessage) []OutgoingMessage {
+	switch msg.Type {
+	case MessageCommand:
+		if fn, ok := c.handlers[strings.ToLower(msg.Message)]; ok && fn != nil {
+			return fn(ctx, msg)
+		}
+	case MessageCallback:
+		if c.callbackFn != nil {
+			return c.callbackFn(ctx, msg)
+		}
+	case MessagePaymentCheckout:
+		if c.paymentCheckoutFn != nil {
+			return c.paymentCheckoutFn(ctx, msg)
+		}
+	case MessagePaymentCharge:
+		if c.paymentChargeFn != nil {
+			return c.paymentChargeFn(ctx, msg)
+		}
+	case MessageResponse, MessageText:
+		if c.messageFn != nil {
+			return c.messageFn(ctx, msg)
+		}
+	default:
+		if c.defaultFn != nil {
+			return c.messageFn(ctx, msg)
+		}
+	}
+	return nil
 }
 
 func (c *Client) SendMessage(msg *OutgoingMessage) error {
@@ -173,7 +187,7 @@ func (c *Client) SendPayment(p *Payment) error {
 	return nil
 }
 
-func (c *Client) completePayment(checkoutID string, err error) error {
+func (c *Client) CompletePayment(checkoutID string, err error) error {
 	if c.paymentToken == "" {
 		return errors.New("payment token not set")
 	}
