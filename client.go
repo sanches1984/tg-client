@@ -104,8 +104,12 @@ func (c *Client) Listen(ctx context.Context) {
 
 func (c *Client) processMessage(ctx context.Context, update tgbotapi.Update) {
 	msg := c.parseMessage(update)
-	c.logger.Debug().Int("user_id", msg.UserID).Str("msg", msg.Message).
-		Str("callback", string(msg.Callback.Type)).Str("value", msg.Callback.Value).Msg("incoming message")
+	if msg.Callback != nil {
+		c.logger.Debug().Int("user_id", msg.UserID).Str("callback", msg.Callback.Type).
+			Str("value", msg.Callback.Value).Str("message", msg.Message).Msg("incoming callback")
+	} else {
+		c.logger.Debug().Int("user_id", msg.UserID).Str("message", msg.Message).Msg("incoming message")
+	}
 
 	var outMsg []OutgoingMessage
 	if c.prepareFn != nil {
