@@ -55,6 +55,7 @@ func New(token string) (*Client, error) {
 		api:      api,
 		token:    token,
 		updateCh: updateChannel,
+		handlers: make(map[string]HandleFunc),
 		logger:   log.Logger,
 	}, nil
 }
