@@ -218,7 +218,7 @@ func (c *Client) createMessage(msg *OutgoingMessage) error {
 	var m tgbotapi.Message
 	var err error
 	if msg.File != nil {
-		tgMsg := tgbotapi.NewDocumentUpload(msg.ChatID, msg.File)
+		tgMsg := tgbotapi.NewDocumentUpload(msg.ChatID, *msg.File)
 		m, err = c.api.Send(tgMsg)
 	} else {
 		tgMsg := tgbotapi.NewMessage(msg.ChatID, msg.Message)
