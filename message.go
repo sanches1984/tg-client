@@ -1,5 +1,7 @@
 package tg_client
 
+import tgbotapi "github.com/Syfaro/telegram-bot-api"
+
 type IncomingMessageType string
 type OutgoingMessageType string
 type WaitMessageType string
@@ -47,6 +49,7 @@ type OutgoingMessage struct {
 	WaitData       *WaitData
 	ReplyMessageID int
 	Formatted      bool
+	File           *tgbotapi.FileBytes
 }
 
 type WaitData struct {

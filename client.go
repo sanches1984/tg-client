@@ -215,18 +215,27 @@ func (c *Client) CompletePayment(checkoutID string, err error) error {
 }
 
 func (c *Client) createMessage(msg *OutgoingMessage) error {
-	tgMsg := tgbotapi.NewMessage(msg.ChatID, msg.Message)
-	tgMsg.ReplyMarkup = msg.Markup
-	if msg.Formatted {
-		tgMsg.ParseMode = parseModeMarkdown
+	var m tgbotapi.Message
+	var err error
+	if msg.File != nil {
+		tgMsg := tgbotapi.NewDocumentUpload(msg.ChatID, msg.File)
+		m, err = c.api.Send(tgMsg)
+	} else {
+		tgMsg := tgbotapi.NewMessage(msg.ChatID, msg.Message)
+		tgMsg.ReplyMarkup = msg.Markup
+		if msg.Formatted {
+			tgMsg.ParseMode = parseModeMarkdown
+		}
+		m, err = c.api.Send(tgMsg)
 	}
-
-	m, err := c.api.Send(tgMsg)
 	if err != nil {
 		return err
 	}
+
 	msg.ID = m.MessageID
-	c.lastBotMessage.Store(msg.UserID, msg)
+	if msg.File == nil {
+		c.lastBotMessage.Store(msg.UserID, msg)
+	}
 	return nil
 }
 
