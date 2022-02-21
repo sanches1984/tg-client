@@ -1,2 +1,1 @@
-# tg-client
-Telegram client
+# Telegram Client

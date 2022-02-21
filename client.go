@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	tgbotapi "github.com/Syfaro/telegram-bot-api"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"net/url"
-	"strconv"
+	"github.com/sanches1984/tg-client/payment"
+	"log"
 	"strings"
 	"sync"
 )
@@ -16,17 +14,20 @@ const timeout = 60
 
 type HandleFunc func(ctx context.Context, msg *IncomingMessage) []OutgoingMessage
 
+type PaymentClient interface {
+	Send(payment *payment.Payment) error
+	Complete(checkoutID string, err error) error
+}
+
 type Client struct {
-	api          *tgbotapi.BotAPI
-	updateCh     tgbotapi.UpdatesChannel
-	token        string
-	paymentToken string
-	withFiscal   bool
+	api      *tgbotapi.BotAPI
+	updateCh tgbotapi.UpdatesChannel
+	payments PaymentClient
 
 	waitingMessage sync.Map
 	lastBotMessage sync.Map
 
-	middleware        func(handleFunc HandleFunc) HandleFunc
+	middlewares       []Middleware
 	handlers          map[string]HandleFunc
 	prepareFn         HandleFunc
 	callbackFn        HandleFunc
@@ -34,11 +35,9 @@ type Client struct {
 	paymentChargeFn   HandleFunc
 	messageFn         HandleFunc
 	defaultFn         HandleFunc
-
-	logger zerolog.Logger
 }
 
-func New(token string) (*Client, error) {
+func New(token string, mw ...Middleware) (*Client, error) {
 	api, err := tgbotapi.NewBotAPI(token)
 	if err != nil {
 		return nil, err
@@ -53,28 +52,15 @@ func New(token string) (*Client, error) {
 	}
 
 	return &Client{
-		api:      api,
-		token:    token,
-		updateCh: updateChannel,
-		handlers: make(map[string]HandleFunc),
-		logger:   log.Logger,
+		api:         api,
+		updateCh:    updateChannel,
+		handlers:    make(map[string]HandleFunc),
+		middlewares: mw,
 	}, nil
 }
 
-func (c *Client) WithMiddleware(mwFn func(handleFunc HandleFunc) HandleFunc) *Client {
-	c.middleware = mwFn
-	return c
-}
-
-func (c *Client) WithPayments(paymentToken string, withFiscal bool) *Client {
-	c.paymentToken = paymentToken
-	c.withFiscal = withFiscal
-	return c
-}
-
-func (c *Client) WithLogger(logger zerolog.Logger) *Client {
-	c.logger = logger
-	return c
+func (c *Client) InitPayments(paymentToken string, withFiscal bool) {
+	c.payments = payment.New(c.api, paymentToken, withFiscal)
 }
 
 func (c *Client) HandlePrepareMessage(handleFn HandleFunc) {
@@ -110,23 +96,16 @@ func (c *Client) Listen(ctx context.Context) {
 
 func (c *Client) processMessage(ctx context.Context, update tgbotapi.Update) {
 	msg := c.parseMessage(update)
-	if msg.Callback != nil {
-		c.logger.Debug().Int("user_id", msg.UserID).Str("callback", msg.Callback.Type).
-			Str("value", msg.Callback.Value).Str("message", msg.Message).Msg("incoming callback")
-	} else {
-		c.logger.Debug().Int("user_id", msg.UserID).Str("message", msg.Message).Msg("incoming message")
-	}
 
 	fn := c.processMessageFn()
-	if c.middleware != nil {
-		fn = c.middleware(fn)
+	for _, mw := range c.middlewares {
+		fn = mw(fn)
 	}
 	outMsg := fn(ctx, msg)
 
 	for _, m := range outMsg {
-		c.logger.Debug().Int("user_id", m.UserID).Str("msg", m.Message).Msg("outgoing message")
 		if err := c.SendMessage(&m); err != nil {
-			c.logger.Error().Err(err).Int("user_id", m.UserID).Str("msg", m.Message).Msg("send message error")
+			log.Println("send message error, chat_id=", m.ChatID)
 		}
 	}
 }
@@ -189,45 +168,18 @@ func (c *Client) SendMessage(msg *OutgoingMessage) error {
 	}
 }
 
-func (c *Client) SendPayment(p *Payment) error {
-	if c.paymentToken == "" {
-		return errors.New("payment token not set")
+func (c *Client) SendPayment(payment *payment.Payment) error {
+	if c.payments == nil {
+		return errors.New("payments not initialized")
 	}
-	if c.withFiscal {
-		return c.sendPaymentWithFiscal(p)
-	}
-
-	prices := []tgbotapi.LabeledPrice{{Label: "руб.", Amount: p.Amount}}
-	invoice := tgbotapi.NewInvoice(p.ChatID, p.Title, p.Description, p.Payload, c.paymentToken, "", currencyRUB, &prices)
-	msg, err := c.api.Send(invoice)
-	if err != nil {
-		return err
-	}
-
-	p.MessageID = msg.MessageID
-	return nil
+	return c.payments.Send(payment)
 }
 
 func (c *Client) CompletePayment(checkoutID string, err error) error {
-	if c.paymentToken == "" {
-		return errors.New("payment token not set")
+	if c.payments == nil {
+		return errors.New("payments not initialized")
 	}
-
-	v := url.Values{}
-	v.Add("pre_checkout_query_id", checkoutID)
-	v.Add("ok", strconv.FormatBool(err == nil))
-	if err != nil {
-		v.Add("error_message", err.Error())
-	}
-
-	resp, err := c.api.MakeRequest("answerPreCheckoutQuery", v)
-	if err != nil {
-		return err
-	}
-	if !resp.Ok {
-		return errors.New(resp.Description)
-	}
-	return nil
+	return c.payments.Complete(checkoutID, err)
 }
 
 func (c *Client) createMessage(msg *OutgoingMessage) error {
@@ -240,7 +192,7 @@ func (c *Client) createMessage(msg *OutgoingMessage) error {
 		tgMsg := tgbotapi.NewMessage(msg.ChatID, msg.Message)
 		tgMsg.ReplyMarkup = msg.Markup
 		if msg.Formatted {
-			tgMsg.ParseMode = parseModeMarkdown
+			tgMsg.ParseMode = tgbotapi.ModeMarkdown
 		}
 		m, err = c.api.Send(tgMsg)
 	}
@@ -258,7 +210,7 @@ func (c *Client) createMessage(msg *OutgoingMessage) error {
 func (c *Client) editMessage(msg *OutgoingMessage) error {
 	tgMsg := tgbotapi.NewEditMessageText(msg.ChatID, msg.ReplyMessageID, msg.Message)
 	if msg.Formatted {
-		tgMsg.ParseMode = parseModeMarkdown
+		tgMsg.ParseMode = tgbotapi.ModeMarkdown
 	}
 	m, err := c.api.Send(tgMsg)
 	if err != nil {
@@ -272,18 +224,4 @@ func (c *Client) deleteMessage(msg *OutgoingMessage) error {
 	tgMsg := tgbotapi.NewDeleteMessage(msg.ChatID, msg.ReplyMessageID)
 	_, err := c.api.Send(tgMsg)
 	return err
-}
-
-func (c *Client) sendPaymentWithFiscal(p *Payment) error {
-	vals := p.Values()
-	vals.Add("provider_token", c.paymentToken)
-
-	resp, err := c.api.MakeRequest("sendInvoice", vals)
-	if err != nil {
-		return err
-	}
-	if !resp.Ok {
-		return errors.New(resp.Description)
-	}
-	return nil
 }

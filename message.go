@@ -1,6 +1,9 @@
 package tg_client
 
-import tgbotapi "github.com/Syfaro/telegram-bot-api"
+import (
+	tgbotapi "github.com/Syfaro/telegram-bot-api"
+	"github.com/sanches1984/tg-client/payment"
+)
 
 type IncomingMessageType string
 type OutgoingMessageType string
@@ -17,11 +20,6 @@ const (
 	MessageDefault OutgoingMessageType = "default"
 	MessageEdit    OutgoingMessageType = "edit"
 	MessageDelete  OutgoingMessageType = "delete"
-
-	entityTypeMention = "mention"
-	parseModeMarkdown = "markdown"
-	currencyRUB       = "RUB"
-	currencyRUBInfo   = "руб."
 )
 
 type IncomingMessage struct {
@@ -32,9 +30,10 @@ type IncomingMessage struct {
 	UserName    string
 	ChatID      int64
 	Message     string
+	FileID      string
 	FileURL     string
 	Callback    *Callback
-	Payment     *PaymentInfo
+	Payment     *payment.PaymentInfo
 	LastMessage *OutgoingMessage
 	User        interface{}
 }
@@ -59,4 +58,8 @@ type WaitData struct {
 
 func (m IncomingMessage) IsCommand() bool {
 	return len(m.Message) > 1 && m.Message[:1] == "/"
+}
+
+func (m IncomingMessage) IsPayment() bool {
+	return m.Type == MessagePaymentCheckout || m.Type == MessagePaymentCharge
 }
