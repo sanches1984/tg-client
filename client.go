@@ -14,7 +14,7 @@ import (
 
 const timeout = 60
 
-type HandleFunc func(ctx context.Context, msg IncomingMessage) []OutgoingMessage
+type HandleFunc func(ctx context.Context, msg *IncomingMessage) []OutgoingMessage
 
 type Client struct {
 	api          *tgbotapi.BotAPI
@@ -26,8 +26,9 @@ type Client struct {
 	waitingMessage sync.Map
 	lastBotMessage sync.Map
 
+	middleware        func(handleFunc HandleFunc) HandleFunc
 	handlers          map[string]HandleFunc
-	prepareFn         func(ctx context.Context, msg *IncomingMessage) []OutgoingMessage
+	prepareFn         HandleFunc
 	callbackFn        HandleFunc
 	paymentCheckoutFn HandleFunc
 	paymentChargeFn   HandleFunc
@@ -60,6 +61,11 @@ func New(token string) (*Client, error) {
 	}, nil
 }
 
+func (c *Client) WithMiddleware(mwFn func(handleFunc HandleFunc) HandleFunc) *Client {
+	c.middleware = mwFn
+	return c
+}
+
 func (c *Client) WithPayments(paymentToken string, withFiscal bool) *Client {
 	c.paymentToken = paymentToken
 	c.withFiscal = withFiscal
@@ -71,7 +77,7 @@ func (c *Client) WithLogger(logger zerolog.Logger) *Client {
 	return c
 }
 
-func (c *Client) HandlePrepareMessage(handleFn func(ctx context.Context, msg *IncomingMessage) []OutgoingMessage) {
+func (c *Client) HandlePrepareMessage(handleFn HandleFunc) {
 	c.prepareFn = handleFn
 }
 
@@ -111,14 +117,11 @@ func (c *Client) processMessage(ctx context.Context, update tgbotapi.Update) {
 		c.logger.Debug().Int("user_id", msg.UserID).Str("message", msg.Message).Msg("incoming message")
 	}
 
-	var outMsg []OutgoingMessage
-	if c.prepareFn != nil {
-		outMsg = c.prepareFn(ctx, &msg)
+	fn := c.processMessageFn()
+	if c.middleware != nil {
+		fn = c.middleware(fn)
 	}
-
-	if len(outMsg) == 0 {
-		outMsg = c.getOutgoingMessages(ctx, msg)
-	}
+	outMsg := fn(ctx, msg)
 
 	for _, m := range outMsg {
 		c.logger.Debug().Int("user_id", m.UserID).Str("msg", m.Message).Msg("outgoing message")
@@ -128,7 +131,20 @@ func (c *Client) processMessage(ctx context.Context, update tgbotapi.Update) {
 	}
 }
 
-func (c *Client) getOutgoingMessages(ctx context.Context, msg IncomingMessage) []OutgoingMessage {
+func (c *Client) processMessageFn() HandleFunc {
+	return func(ctx context.Context, msg *IncomingMessage) []OutgoingMessage {
+		var outMsg []OutgoingMessage
+		if c.prepareFn != nil {
+			outMsg = c.prepareFn(ctx, msg)
+		}
+		if len(outMsg) == 0 {
+			outMsg = c.getOutgoingMessages(ctx, msg)
+		}
+		return outMsg
+	}
+}
+
+func (c *Client) getOutgoingMessages(ctx context.Context, msg *IncomingMessage) []OutgoingMessage {
 	switch msg.Type {
 	case MessageCommand:
 		if fn, ok := c.handlers[strings.ToLower(msg.Message)]; ok && fn != nil {

@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-func (c *Client) parseMessage(update tgbotapi.Update) IncomingMessage {
-	msg := IncomingMessage{}
+func (c *Client) parseMessage(update tgbotapi.Update) *IncomingMessage {
+	msg := &IncomingMessage{}
 
 	if update.CallbackQuery != nil {
 		msg.ID = update.CallbackQuery.Message.MessageID
