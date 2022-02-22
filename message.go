@@ -42,7 +42,7 @@ type OutgoingMessage struct {
 	ID             int
 	Type           OutgoingMessageType
 	ChatID         int64
-	UserID         int
+	UserID         int64
 	Message        string
 	Markup         interface{}
 	WaitData       *WaitData
