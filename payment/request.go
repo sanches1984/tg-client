@@ -28,13 +28,6 @@ type ReceiptItemAmount struct {
 	Currency string `json:"currency"`
 }
 
-type Prices []Price
-
-type Price struct {
-	Label  string `json:"label"`
-	Amount int    `json:"amount"`
-}
-
 func NewProviderData(amount int, description string) ProviderData {
 	return ProviderData{
 		Receipt: Receipt{
@@ -55,14 +48,5 @@ func NewProviderData(amount int, description string) ProviderData {
 
 func (pd ProviderData) ToJSON() string {
 	data, _ := json.Marshal(pd)
-	return string(data)
-}
-
-func NewPrices(amount int) Prices {
-	return []Price{{Label: currencyRUBInfo, Amount: amount}}
-}
-
-func (p Prices) ToJSON() string {
-	data, _ := json.Marshal(p)
 	return string(data)
 }

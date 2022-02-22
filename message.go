@@ -1,7 +1,7 @@
 package tg_client
 
 import (
-	tgbotapi "github.com/Syfaro/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sanches1984/tg-client/payment"
 )
 
@@ -24,7 +24,7 @@ const (
 
 type IncomingMessage struct {
 	ID          int
-	UserID      int
+	UserID      int64
 	Type        IncomingMessageType
 	Login       string
 	UserName    string

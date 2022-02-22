@@ -3,7 +3,7 @@
 package tg_client
 
 import (
-	tgbotapi "github.com/Syfaro/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"testing"

@@ -3,7 +3,7 @@ package tg_client
 import (
 	"context"
 	"errors"
-	tgbotapi "github.com/Syfaro/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sanches1984/tg-client/payment"
 	"log"
 	"strings"
@@ -46,14 +46,9 @@ func New(token string, mw ...Middleware) (*Client, error) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = timeout
 
-	updateChannel, err := api.GetUpdatesChan(u)
-	if err != nil {
-		return nil, err
-	}
-
 	return &Client{
 		api:         api,
-		updateCh:    updateChannel,
+		updateCh:    api.GetUpdatesChan(u),
 		handlers:    make(map[string]HandleFunc),
 		middlewares: mw,
 	}, nil
@@ -186,8 +181,7 @@ func (c *Client) createMessage(msg *OutgoingMessage) error {
 	var m tgbotapi.Message
 	var err error
 	if msg.File != nil {
-		tgMsg := tgbotapi.NewDocumentUpload(msg.ChatID, *msg.File)
-		m, err = c.api.Send(tgMsg)
+		m, err = c.api.Send(tgbotapi.NewDocument(msg.ChatID, *msg.File))
 	} else {
 		tgMsg := tgbotapi.NewMessage(msg.ChatID, msg.Message)
 		tgMsg.ReplyMarkup = msg.Markup

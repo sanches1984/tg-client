@@ -2,7 +2,7 @@ package tg_client
 
 import (
 	"fmt"
-	tgbotapi "github.com/Syfaro/telegram-bot-api"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sanches1984/tg-client/payment"
 	"reflect"
 	"strconv"
@@ -93,9 +93,9 @@ func parseUserMessage(update tgbotapi.Update) *IncomingMessage {
 		msg.Message = strings.TrimSpace(update.Message.Text)
 	}
 
-	if update.Message.Photo != nil && len(*update.Message.Photo) > 0 {
+	if len(update.Message.Photo) > 0 {
 		// get first image
-		msg.FileID = (*update.Message.Photo)[0].FileID
+		msg.FileID = update.Message.Photo[0].FileID
 	} else if update.Message.Document != nil {
 		msg.FileID = update.Message.Document.FileID
 	}
@@ -127,9 +127,8 @@ func getUserIDMention(update tgbotapi.Update) string {
 		return ""
 	}
 
-	if update.Message.Entities != nil && len(*update.Message.Entities) > 0 &&
-		(*update.Message.Entities)[0].IsMention() {
-		return strconv.Itoa((*update.Message.Entities)[0].User.ID)
+	if len(update.Message.Entities) > 0 && update.Message.Entities[0].IsMention() {
+		return strconv.FormatInt(update.Message.Entities[0].User.ID, 10)
 	}
 
 	return ""
