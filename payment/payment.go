@@ -7,7 +7,7 @@ import (
 type Payment struct {
 	MessageID   int
 	ChatID      int64
-	UserID      int
+	UserID      int64
 	Title       string
 	Description string
 	Amount      int
